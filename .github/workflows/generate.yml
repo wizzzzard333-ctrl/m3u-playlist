@@ -2,23 +2,46 @@ name: Generate M3U Playlist
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'videos.json'
+
+permissions:
+  contents: write
 
 jobs:
   generate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: main
       
       - name: Generate M3U file
         run: |
           echo "#EXTM3U" > playlist.m3u
+          
+          # Parse JSON and generate M3U
           cat videos.json | jq -r '.[] | "#EXTINF:\(.duration),\(.title)\n\(.url)"' >> playlist.m3u
           
-      - name: Deploy to GitHub Pages
-        uses: peaceiris/actions-gh-pages@v3
+      - name: Checkout gh-pages
+        uses: actions/checkout@v3
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .
-          keep_files: true
+          ref: gh-pages
+          path: gh-pages
+          
+      - name: Copy files to gh-pages
+        run: |
+          cp playlist.m3u gh-pages/
+          cp videos.json gh-pages/
+          cp index.html gh-pages/
+          
+      - name: Deploy to gh-pages
+        run: |
+          cd gh-pages
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Update playlist" || echo "No changes"
+          git push
