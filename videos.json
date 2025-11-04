@@ -1,11 +1,11 @@
 [
   {
     "title": "Sample Video 1",
-    "url": "https://pixeldrain.dev/api/file/noskBFnP?download",
+    "url": "https://example.com/video1.mp4",
     "duration": 120
   },
   {
-    "title": "Sample Video 2", 
+    "title": "Sample Video 2",
     "url": "https://example.com/video2.mp4",
     "duration": 180
   }
