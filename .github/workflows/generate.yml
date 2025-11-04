@@ -1,0 +1,24 @@
+name: Generate M3U Playlist
+
+on:
+  push:
+    paths:
+      - 'videos.json'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Generate M3U file
+        run: |
+          echo "#EXTM3U" > playlist.m3u
+          cat videos.json | jq -r '.[] | "#EXTINF:\(.duration),\(.title)\n\(.url)"' >> playlist.m3u
+          
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          keep_files: true
