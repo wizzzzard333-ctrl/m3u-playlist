@@ -1,0 +1,5 @@
+#EXTM3U
+#EXTINF:120,Sample Video 1
+https://example.com/video1.mp4
+#EXTINF:180,Sample Video 2
+https://example.com/video2.mp4
