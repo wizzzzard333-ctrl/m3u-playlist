@@ -1,1 +1,7 @@
-[]
+[
+  {
+    "title": "New Video",
+    "url": "https://example.com/video.mp4",
+    "duration": 0
+  }
+]
