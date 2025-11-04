@@ -3,3 +3,5 @@
 https://example.com/video1.mp4
 #EXTINF:180,Cid
 https://pixeldrain.dev/api/file/noskBFnP?download
+#EXTINF:-1,noskBFnP
+https://pixeldrain.dev/api/file/noskBFnP?download

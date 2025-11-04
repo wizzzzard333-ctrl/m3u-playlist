@@ -4,25 +4,16 @@
     <title>M3U Playlist Generator</title>
     <meta charset="UTF-8">
     <style>
-        body { font-family: Arial; max-width: 900px; margin: 50px auto; padding: 20px; }
+        body { font-family: Arial; max-width: 800px; margin: 50px auto; padding: 20px; }
         h1 { color: #333; }
         .url-box { background: #f0f0f0; padding: 15px; border-radius: 5px; margin: 20px 0; }
         .url-box code { background: #fff; padding: 10px; display: block; word-break: break-all; }
-        .token-box { background: #fff3cd; padding: 15px; border-radius: 5px; margin: 20px 0; border: 1px solid #ffc107; }
-        .token-box input { width: 70%; padding: 8px; margin-right: 10px; }
-        .paste-box { background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 20px 0; }
-        .paste-box textarea { width: 100%; padding: 10px; min-height: 100px; font-family: monospace; }
         table { width: 100%; border-collapse: collapse; margin: 20px 0; }
         th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
         th { background: #4CAF50; color: white; }
-        .btn { background: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; margin: 5px; border-radius: 4px; }
+        .btn { background: #4CAF50; color: white; padding: 10px 20px; border: none; cursor: pointer; margin: 5px; }
         .btn:hover { background: #45a049; }
-        .btn-secondary { background: #2196F3; }
-        .btn-secondary:hover { background: #0b7dda; }
-        .btn-danger { background: #f44336; }
-        .btn-danger:hover { background: #da190b; }
-        input[type="text"] { width: 100%; padding: 8px; box-sizing: border-box; }
-        .help-text { color: #666; font-size: 0.9em; margin-top: 5px; }
+        input { width: 100%; padding: 8px; box-sizing: border-box; }
     </style>
 </head>
 <body>
@@ -30,22 +21,7 @@
     
     <div class="url-box">
         <strong>Your M3U Playlist URL:</strong>
-        <code>https://wizzzzard333-ctrl.github.io/m3u-playlist/playlist.m3u</code>
-    </div>
-
-    <div class="token-box">
-        <strong>🔑 GitHub Token (saved in browser):</strong><br>
-        <input type="password" id="tokenInput" placeholder="Paste your GitHub token here">
-        <button class="btn btn-secondary" onclick="saveToken()">Save Token</button>
-        <button class="btn btn-danger" onclick="clearToken()">Clear</button>
-        <div class="help-text">Get token: <a href="https://github.com/settings/tokens" target="_blank">github.com/settings/tokens</a> (needs 'repo' scope)</div>
-    </div>
-
-    <div class="paste-box">
-        <strong>📋 Quick Add from Clipboard:</strong><br>
-        <textarea id="pasteArea" placeholder="Paste URLs here (one per line)&#10;Example:&#10;https://example.com/video1.mp4&#10;https://example.com/video2.mp4&#10;&#10;Or with titles:&#10;My Video Title | https://example.com/video.mp4"></textarea>
-        <button class="btn btn-secondary" onclick="addFromClipboard()">Add URLs</button>
-        <div class="help-text">Paste one URL per line. Optional: Add title before URL separated by |</div>
+        <code id="playlistUrl">Loading...</code>
     </div>
 
     <h2>Videos</h2>
@@ -54,6 +30,7 @@
             <tr>
                 <th>Title</th>
                 <th>URL</th>
+                <th>Duration (sec)</th>
                 <th>Action</th>
             </tr>
         </thead>
@@ -67,87 +44,16 @@
         const GITHUB_USER = 'wizzzzard333-ctrl';
         const REPO = 'm3u-playlist';
         const FILE = 'videos.json';
-        const BRANCH = 'main';
-        const TOKEN_KEY = 'github_token_m3u';
         
         let videos = [];
         let fileSha = '';
 
-        // Load saved token on page load
-        window.onload = function() {
-            const savedToken = localStorage.getItem(TOKEN_KEY);
-            if (savedToken) {
-                document.getElementById('tokenInput').value = savedToken;
-            }
-            loadVideos();
-        };
-
-        function saveToken() {
-            const token = document.getElementById('tokenInput').value.trim();
-            if (token) {
-                localStorage.setItem(TOKEN_KEY, token);
-                alert('✅ Token saved in browser!');
-            } else {
-                alert('❌ Please enter a token first');
-            }
-        }
-
-        function clearToken() {
-            localStorage.removeItem(TOKEN_KEY);
-            document.getElementById('tokenInput').value = '';
-            alert('✅ Token cleared');
-        }
-
-        function addFromClipboard() {
-            const text = document.getElementById('pasteArea').value.trim();
-            if (!text) {
-                alert('❌ Please paste some URLs first');
-                return;
-            }
-
-            const lines = text.split('\n').filter(line => line.trim());
-            
-            lines.forEach(line => {
-                line = line.trim();
-                if (!line) return;
-
-                let title = '';
-                let url = '';
-
-                // Check if line has title | url format
-                if (line.includes('|')) {
-                    const parts = line.split('|');
-                    title = parts[0].trim();
-                    url = parts[1].trim();
-                } else {
-                    url = line;
-                    // Extract filename from URL as title
-                    try {
-                        const urlObj = new URL(url);
-                        const pathname = urlObj.pathname;
-                        title = pathname.split('/').pop() || 'Video';
-                    } catch {
-                        title = 'Video';
-                    }
-                }
-
-                if (url) {
-                    videos.push({ 
-                        title: title, 
-                        url: url, 
-                        duration: -1 
-                    });
-                }
-            });
-
-            renderTable();
-            document.getElementById('pasteArea').value = '';
-            alert(`✅ Added ${lines.length} video(s)! Click "Save & Update Playlist" to save.`);
-        }
+        document.getElementById('playlistUrl').textContent = 
+            `https://${GITHUB_USER}.github.io/${REPO}/playlist.m3u`;
 
         async function loadVideos() {
             try {
-                const response = await fetch(`https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`);
+                const response = await fetch(`https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`);
                 const data = await response.json();
                 fileSha = data.sha;
                 videos = JSON.parse(atob(data.content));
@@ -163,17 +69,18 @@
                 <tr>
                     <td><input type="text" value="${video.title}" onchange="updateVideo(${index}, 'title', this.value)"></td>
                     <td><input type="text" value="${video.url}" onchange="updateVideo(${index}, 'url', this.value)"></td>
-                    <td><button class="btn btn-danger" onclick="deleteVideo(${index})">Delete</button></td>
+                    <td><input type="number" value="${video.duration}" onchange="updateVideo(${index}, 'duration', this.value)"></td>
+                    <td><button class="btn" onclick="deleteVideo(${index})">Delete</button></td>
                 </tr>
             `).join('');
         }
 
         function updateVideo(index, field, value) {
-            videos[index][field] = value;
+            videos[index][field] = field === 'duration' ? parseInt(value) : value;
         }
 
         function addRow() {
-            videos.push({ title: 'New Video', url: 'https://example.com/video.mp4', duration: -1 });
+            videos.push({ title: 'New Video', url: 'https://example.com/video.mp4', duration: 0 });
             renderTable();
         }
 
@@ -183,18 +90,8 @@
         }
 
         async function saveVideos() {
-            let token = localStorage.getItem(TOKEN_KEY);
-            
-            if (!token) {
-                token = prompt('Enter your GitHub Personal Access Token:');
-                if (!token) return;
-                
-                const saveIt = confirm('Save this token in browser for future use?');
-                if (saveIt) {
-                    localStorage.setItem(TOKEN_KEY, token);
-                    document.getElementById('tokenInput').value = token;
-                }
-            }
+            const token = prompt('Enter your GitHub Personal Access Token:');
+            if (!token) return;
 
             try {
                 const response = await fetch(`https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`, {
@@ -206,8 +103,7 @@
                     body: JSON.stringify({
                         message: 'Update video list',
                         content: btoa(JSON.stringify(videos, null, 2)),
-                        sha: fileSha,
-                        branch: BRANCH
+                        sha: fileSha
                     })
                 });
 
@@ -215,13 +111,14 @@
                     alert('✅ Videos saved! Playlist will update in ~30 seconds.');
                     loadVideos();
                 } else {
-                    const error = await response.json();
-                    alert('❌ Error saving: ' + (error.message || 'Check your token'));
+                    alert('❌ Error saving. Check your token.');
                 }
             } catch (error) {
                 alert('❌ Error: ' + error.message);
             }
         }
+
+        loadVideos();
     </script>
 </body>
 </html>
