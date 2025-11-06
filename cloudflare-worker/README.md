@@ -55,35 +55,69 @@ Deploy your Telegram bot on Cloudflare Workers - **100% FREE** with 100k request
 1. Open your bot in Telegram
 2. Send: `/start`
 3. Send: `/settoken` → Paste your GitHub token
-4. **Start sending video URLs!**
+4. **Start managing your playlist!**
 
-## 📱 Usage
+## 📱 Bot Commands
+
+### Setup:
+- `/start` - Welcome message & command list
+- `/settoken` - Save GitHub token (one-time, permanent)
+- `/cleartoken` - Remove saved token
+- `/help` - Show detailed help
 
 ### Add Videos:
+- `/add` - Prompt to add video
+- Or just send URLs directly:
+  - `https://example.com/video.mp4`
+  - `My Video | https://example.com/video.mp4`
 
-**Simple:**
+### Manage Videos:
+- `/list` - Show all videos in playlist
+- `/delete` - Delete specific videos (interactive buttons)
+- `/clear` - Clear entire playlist (with confirmation)
+
+## 🎯 Usage Examples
+
+### Add a Video:
+
+**Simple URL:**
 ```
 https://example.com/video.mp4
 ```
+Bot extracts filename as title automatically.
 
-**With Title:**
+**Custom Title:**
 ```
 My Awesome Video | https://example.com/video.mp4
 ```
 
-### Commands:
+### Delete Videos:
 
-- `/start` - Welcome message
-- `/settoken` - Save GitHub token (one-time, permanent)
-- `/list` - Show all videos
-- `/cleartoken` - Remove saved token
-- `/help` - Show help
+1. Send `/delete`
+2. Bot shows list with ❌ buttons
+3. Click button to select video
+4. Confirm deletion
+5. Done! ✅
+
+**Features:**
+- Shows 10 videos at a time
+- "Show More" button for pagination
+- Confirmation before deleting
+- Shows video title & URL before deletion
+
+### Clear All Videos:
+
+1. Send `/clear`
+2. Bot asks for confirmation
+3. Click "✅ Yes, Clear All"
+4. All videos deleted! 🗑️
 
 ## 🔐 Security
 
 - Tokens stored in Cloudflare KV (encrypted, permanent)
-- Token messages auto-deleted
-- Each user has their own token
+- Token messages auto-deleted after saving
+- Each user has their own isolated token
+- Confirmation required for destructive actions
 - No database needed!
 
 ## 💰 Cost
@@ -91,7 +125,39 @@ My Awesome Video | https://example.com/video.mp4
 **100% FREE!**
 - Cloudflare Workers: 100,000 requests/day free
 - KV Storage: 100,000 reads/day free
+- KV Writes: 1,000/day free
 - Perfect for personal use!
+
+## ✨ Features
+
+✅ **Add Videos**
+- Send URLs directly
+- Auto-extract titles from URLs
+- Custom title support
+- Instant confirmation
+
+✅ **Delete Videos**
+- Interactive button interface
+- Pagination (10 videos per page)
+- Confirmation before deletion
+- Shows video details
+
+✅ **Clear Playlist**
+- Delete all videos at once
+- Safety confirmation
+- Quick reset
+
+✅ **Token Management**
+- Permanent storage per user
+- Secure token handling
+- Auto-delete token messages
+- Easy token reset
+
+✅ **User Experience**
+- Instant responses
+- Clear feedback messages
+- Interactive buttons
+- Error handling
 
 ## 🐛 Troubleshooting
 
@@ -99,44 +165,74 @@ My Awesome Video | https://example.com/video.mp4
 1. Check webhook setup: Visit `/setup` endpoint
 2. Verify bot token in environment variables
 3. Check worker logs in Cloudflare dashboard
+4. Make sure KV namespace is bound
 
 **Token not saving?**
-1. Make sure KV namespace is bound as `USER_TOKENS`
-2. Check KV namespace is created
-3. Verify binding name matches exactly
+1. Verify KV namespace is created
+2. Check binding name is exactly `USER_TOKENS`
+3. Try `/cleartoken` then `/settoken` again
 
-**Videos not adding?**
-1. Make sure GitHub token has 'repo' scope
-2. Try `/cleartoken` and `/settoken` again
-3. Check GitHub token is valid
+**Videos not adding/deleting?**
+1. Verify GitHub token has 'repo' scope
+2. Check token is saved: Send `/list`
+3. Try refreshing token: `/cleartoken` → `/settoken`
 
-## 🔄 Updates
+**Delete buttons not working?**
+1. Make sure you clicked "Save and Deploy" after updating code
+2. Check worker logs for errors
+3. Try `/delete` command again
 
-To update the bot:
+## 🔄 Update Bot Code
+
+To update the bot with new features:
 1. Go to Cloudflare Workers dashboard
 2. Click your worker
 3. Click "Quick Edit"
-4. Update code
-5. Click "Save and Deploy"
+4. Copy new code from `cloudflare-worker/bot.js`
+5. Paste and replace all code
+6. Click "Save and Deploy"
+7. Test with `/start` command
 
 ## 📊 Monitor Usage
 
 - Cloudflare Dashboard → Workers → Your Worker
-- See requests, errors, and performance
-- Free tier shows last 24 hours
+- View requests, errors, and performance
+- Check KV storage usage
+- Free tier shows last 24 hours of data
 
-## 🎯 Features
+## 🎬 Your Playlist URL
 
-✅ Permanent token storage per user
-✅ Auto-extracts video titles from URLs
-✅ Custom titles support
-✅ List all videos
-✅ Secure token handling
-✅ 100% serverless
-✅ No server maintenance
-✅ Instant responses
-
-## 🌐 Your Playlist
-
-After adding videos:
+After managing videos, your playlist is available at:
 `https://wizzzzard333-ctrl.github.io/m3u-playlist/playlist.m3u`
+
+Use this URL in any M3U-compatible player!
+
+## 🌟 Pro Tips
+
+1. **Bulk Add**: Send multiple URLs in separate messages quickly
+2. **Quick Delete**: Use `/delete` to remove videos without opening web interface
+3. **Fresh Start**: Use `/clear` to reset playlist completely
+4. **Token Security**: Bot auto-deletes your token message for security
+5. **Pagination**: If you have many videos, use "Show More" button in `/delete`
+
+## 📝 Command Summary
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Show welcome & commands |
+| `/settoken` | Save GitHub token (permanent) |
+| `/add` | Add video prompt |
+| `/list` | Show all videos |
+| `/delete` | Delete videos (interactive) |
+| `/clear` | Clear all videos |
+| `/cleartoken` | Remove saved token |
+| `/help` | Show help |
+
+## 🎯 Next Steps
+
+1. Deploy the bot following steps above
+2. Set your GitHub token once
+3. Start managing your playlist from Telegram!
+4. Share your playlist URL with friends
+
+**No app needed, no web interface required - just Telegram!** 🚀
