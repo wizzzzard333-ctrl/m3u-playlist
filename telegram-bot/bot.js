@@ -28,8 +28,10 @@ Welcome! I can help you manage your M3U playlist directly from Telegram.
 
 *Commands:*
 /settoken - Save your GitHub token
-/addvideo - Add a video URL
-/listvideo - List all videos
+/add - Add a video URL
+/list - List all videos
+/delete - Delete videos
+/clear - Clear all videos
 /help - Show this help
 
 *Quick Add:*
@@ -59,7 +61,9 @@ bot.onText(/\/help/, (msg) => {
    \`My Video | https://example.com/video.mp4\`
 
 3️⃣ *Manage:*
-   /listvideo - See all videos
+   /list - See all videos
+   /delete - Delete specific videos
+   /clear - Clear all videos
    /cleartoken - Remove saved token
 
 *Get GitHub Token:*
@@ -108,8 +112,8 @@ bot.onText(/\/cleartoken/, (msg) => {
     bot.sendMessage(chatId, '✅ Token cleared. Use /settoken to add a new one.');
 });
 
-// Command: /addvideo
-bot.onText(/\/addvideo/, (msg) => {
+// Command: /add
+bot.onText(/\/add/, (msg) => {
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, 
         '📹 Send me the video URL:\n\n' +
@@ -119,12 +123,18 @@ bot.onText(/\/addvideo/, (msg) => {
     );
 });
 
-// Command: /listvideo
-bot.onText(/\/listvideo/, async (msg) => {
+// Command: /list
+bot.onText(/\/list/, async (msg) => {
     const chatId = msg.chat.id;
+    const token = userTokens.get(chatId);
+    
+    if (!token) {
+        bot.sendMessage(chatId, '⚠️ Please set your GitHub token first using /settoken');
+        return;
+    }
     
     try {
-        const videos = await fetchVideos();
+        const videos = await fetchVideos(token);
         
         if (videos.length === 0) {
             bot.sendMessage(chatId, '📭 No videos in playlist yet.');
@@ -140,9 +150,215 @@ bot.onText(/\/listvideo/, async (msg) => {
             message += `\n... and ${videos.length - 20} more`;
         }
         
+        message += '\n\nUse /delete to remove videos';
+        
         bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
     } catch (error) {
         bot.sendMessage(chatId, '❌ Error fetching videos: ' + error.message);
+    }
+});
+
+// Command: /delete
+bot.onText(/\/delete/, async (msg) => {
+    const chatId = msg.chat.id;
+    const token = userTokens.get(chatId);
+    
+    if (!token) {
+        bot.sendMessage(chatId, '⚠️ Please set your GitHub token first using /settoken');
+        return;
+    }
+    
+    try {
+        const videos = await fetchVideos(token);
+        
+        if (videos.length === 0) {
+            bot.sendMessage(chatId, '📭 No videos to delete.');
+            return;
+        }
+        
+        // Show videos with delete buttons (max 10 at a time)
+        const buttons = videos.slice(0, 10).map((v, i) => [{
+            text: `❌ ${i + 1}. ${v.title.substring(0, 30)}${v.title.length > 30 ? '...' : ''}`,
+            callback_data: `delete_${i}`
+        }]);
+        
+        if (videos.length > 10) {
+            buttons.push([{
+                text: '➡️ Show More',
+                callback_data: 'delete_more_10'
+            }]);
+        }
+        
+        bot.sendMessage(chatId, '🗑️ *Select video to delete:*\n\nClick button below:', {
+            parse_mode: 'Markdown',
+            reply_markup: {
+                inline_keyboard: buttons
+            }
+        });
+    } catch (error) {
+        bot.sendMessage(chatId, '❌ Error: ' + error.message);
+    }
+});
+
+// Command: /clear
+bot.onText(/\/clear/, (msg) => {
+    const chatId = msg.chat.id;
+    const token = userTokens.get(chatId);
+    
+    if (!token) {
+        bot.sendMessage(chatId, '⚠️ Please set your GitHub token first using /settoken');
+        return;
+    }
+    
+    const buttons = [[
+        { text: '✅ Yes, Clear All', callback_data: 'clear_confirm' },
+        { text: '❌ Cancel', callback_data: 'clear_cancel' }
+    ]];
+    
+    bot.sendMessage(chatId, '⚠️ *Clear ALL videos?*\n\nThis will delete your entire playlist!', {
+        parse_mode: 'Markdown',
+        reply_markup: {
+            inline_keyboard: buttons
+        }
+    });
+});
+
+// Handle callback queries (button clicks)
+bot.on('callback_query', async (query) => {
+    const chatId = query.message.chat.id;
+    const messageId = query.message.message_id;
+    const data = query.callback_data;
+    const token = userTokens.get(chatId);
+    
+    if (!token) {
+        bot.answerCallbackQuery(query.id, { text: '⚠️ Token not found. Use /settoken' });
+        return;
+    }
+    
+    try {
+        // Handle delete video
+        if (data.startsWith('delete_')) {
+            if (data === 'delete_cancel') {
+                bot.editMessageText('❌ Cancelled', {
+                    chat_id: chatId,
+                    message_id: messageId
+                });
+                bot.answerCallbackQuery(query.id, { text: 'Cancelled' });
+                return;
+            }
+            
+            if (data.startsWith('delete_more_')) {
+                const offset = parseInt(data.split('_')[2]);
+                const videos = await fetchVideos(token);
+                
+                const buttons = videos.slice(offset, offset + 10).map((v, i) => [{
+                    text: `❌ ${offset + i + 1}. ${v.title.substring(0, 30)}${v.title.length > 30 ? '...' : ''}`,
+                    callback_data: `delete_${offset + i}`
+                }]);
+                
+                if (videos.length > offset + 10) {
+                    buttons.push([{
+                        text: '➡️ Show More',
+                        callback_data: `delete_more_${offset + 10}`
+                    }]);
+                }
+                
+                if (offset > 0) {
+                    buttons.push([{
+                        text: '⬅️ Previous',
+                        callback_data: `delete_more_${Math.max(0, offset - 10)}`
+                    }]);
+                }
+                
+                bot.editMessageText('🗑️ *Select video to delete:*', {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: buttons
+                    }
+                });
+                
+                bot.answerCallbackQuery(query.id);
+                return;
+            }
+            
+            const index = parseInt(data.split('_')[1]);
+            const videos = await fetchVideos(token);
+            
+            if (index < 0 || index >= videos.length) {
+                bot.answerCallbackQuery(query.id, { text: '❌ Invalid video' });
+                return;
+            }
+            
+            const videoToDelete = videos[index];
+            
+            // Show confirmation
+            const buttons = [[
+                { text: '✅ Yes, Delete', callback_data: `confirm_delete_${index}` },
+                { text: '❌ Cancel', callback_data: 'delete_cancel' }
+            ]];
+            
+            bot.editMessageText(
+                `⚠️ *Delete this video?*\n\n📹 ${videoToDelete.title}\n🔗 ${videoToDelete.url}`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown',
+                    reply_markup: {
+                        inline_keyboard: buttons
+                    }
+                }
+            );
+            
+            bot.answerCallbackQuery(query.id);
+        }
+        
+        // Handle delete confirmation
+        else if (data.startsWith('confirm_delete_')) {
+            const index = parseInt(data.split('_')[2]);
+            
+            bot.answerCallbackQuery(query.id, { text: '⏳ Deleting...' });
+            
+            const deletedVideo = await deleteVideo(token, index);
+            
+            bot.editMessageText(
+                `✅ *Video deleted!*\n\n📹 ${deletedVideo.title}\n\nPlaylist updates in ~30 seconds.`,
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown'
+                }
+            );
+        }
+        
+        // Handle clear all
+        else if (data === 'clear_confirm') {
+            bot.answerCallbackQuery(query.id, { text: '⏳ Clearing...' });
+            
+            await clearAllVideos(token);
+            
+            bot.editMessageText(
+                '✅ *All videos cleared!*\n\nPlaylist is now empty.',
+                {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'Markdown'
+                }
+            );
+        }
+        
+        else if (data === 'clear_cancel') {
+            bot.editMessageText('❌ Cancelled', {
+                chat_id: chatId,
+                message_id: messageId
+            });
+            bot.answerCallbackQuery(query.id, { text: 'Cancelled' });
+        }
+        
+    } catch (error) {
+        console.error('Callback error:', error);
+        bot.answerCallbackQuery(query.id, { text: '❌ Error: ' + error.message });
     }
 });
 
@@ -212,9 +428,14 @@ bot.on('message', async (msg) => {
 });
 
 // Fetch current videos
-async function fetchVideos() {
+async function fetchVideos(token) {
     const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `token ${token}`,
+            'User-Agent': 'M3U-Bot'
+        }
+    });
     const data = await response.json();
     return JSON.parse(Buffer.from(data.content, 'base64').toString());
 }
@@ -223,7 +444,12 @@ async function fetchVideos() {
 async function addVideoToPlaylist(token, title, videoUrl) {
     // Get current videos
     const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `token ${token}`,
+            'User-Agent': 'M3U-Bot'
+        }
+    });
     const data = await response.json();
     
     const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
@@ -244,6 +470,7 @@ async function addVideoToPlaylist(token, title, videoUrl) {
             headers: {
                 'Authorization': `token ${token}`,
                 'Content-Type': 'application/json',
+                'User-Agent': 'M3U-Bot'
             },
             body: JSON.stringify({
                 message: `Add video: ${title}`,
@@ -257,6 +484,93 @@ async function addVideoToPlaylist(token, title, videoUrl) {
     if (!updateResponse.ok) {
         const error = await updateResponse.json();
         throw new Error(error.message || 'Failed to update playlist');
+    }
+    
+    return true;
+}
+
+// Delete video from playlist
+async function deleteVideo(token, index) {
+    // Get current videos
+    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `token ${token}`,
+            'User-Agent': 'M3U-Bot'
+        }
+    });
+    const data = await response.json();
+    
+    const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
+    
+    if (index < 0 || index >= videos.length) {
+        throw new Error('Invalid video index');
+    }
+    
+    // Remove video
+    const deletedVideo = videos.splice(index, 1)[0];
+    
+    // Update file
+    const updateResponse = await fetch(
+        `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
+        {
+            method: 'PUT',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'M3U-Bot'
+            },
+            body: JSON.stringify({
+                message: `Delete video: ${deletedVideo.title}`,
+                content: Buffer.from(JSON.stringify(videos, null, 2)).toString('base64'),
+                sha: data.sha,
+                branch: BRANCH
+            })
+        }
+    );
+    
+    if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        throw new Error(error.message || 'Failed to delete video');
+    }
+    
+    return deletedVideo;
+}
+
+// Clear all videos
+async function clearAllVideos(token) {
+    // Get current file SHA
+    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+    const response = await fetch(url, {
+        headers: {
+            'Authorization': `token ${token}`,
+            'User-Agent': 'M3U-Bot'
+        }
+    });
+    const data = await response.json();
+    
+    // Update with empty array
+    const updateResponse = await fetch(
+        `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
+        {
+            method: 'PUT',
+            headers: {
+                'Authorization': `token ${token}`,
+                'Content-Type': 'application/json',
+                'User-Agent': 'M3U-Bot'
+            },
+            body: JSON.stringify({
+                message: 'Clear all videos',
+                content: Buffer.from(JSON.stringify([], null, 2)).toString('base64'),
+                sha: data.sha,
+                branch: BRANCH
+            })
+        }
+    );
+    
+    if (!updateResponse.ok) {
+        const error = await updateResponse.json();
+        throw new Error(error.message || 'Failed to clear videos');
     }
     
     return true;
