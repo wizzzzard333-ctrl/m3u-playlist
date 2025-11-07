@@ -12,6 +12,7 @@ const BRANCH = 'main';
 
 // In-memory storage (use database in production)
 const userTokens = new Map();
+const userStates = new Map(); // Store user states for delete operations
 
 // Create bot
 const bot = new TelegramBot(BOT_TOKEN, { polling: true });
@@ -109,6 +110,7 @@ bot.onText(/\/settoken/, (msg) => {
 bot.onText(/\/cleartoken/, (msg) => {
     const chatId = msg.chat.id;
     userTokens.delete(chatId);
+    userStates.delete(chatId);
     bot.sendMessage(chatId, '✅ Token cleared. Use /settoken to add a new one.');
 });
 
@@ -154,6 +156,7 @@ bot.onText(/\/list/, async (msg) => {
         
         bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
     } catch (error) {
+        console.error('List error:', error);
         bot.sendMessage(chatId, '❌ Error fetching videos: ' + error.message);
     }
 });
@@ -176,6 +179,9 @@ bot.onText(/\/delete/, async (msg) => {
             return;
         }
         
+        // Store videos in state for this user
+        userStates.set(chatId, { videos: videos, offset: 0 });
+        
         // Show videos with delete buttons (max 10 at a time)
         const buttons = videos.slice(0, 10).map((v, i) => [{
             text: `❌ ${i + 1}. ${v.title.substring(0, 30)}${v.title.length > 30 ? '...' : ''}`,
@@ -196,6 +202,7 @@ bot.onText(/\/delete/, async (msg) => {
             }
         });
     } catch (error) {
+        console.error('Delete command error:', error);
         bot.sendMessage(chatId, '❌ Error: ' + error.message);
     }
 });
@@ -244,12 +251,16 @@ bot.on('callback_query', async (query) => {
                     message_id: messageId
                 });
                 bot.answerCallbackQuery(query.id, { text: 'Cancelled' });
+                userStates.delete(chatId);
                 return;
             }
             
             if (data.startsWith('delete_more_')) {
                 const offset = parseInt(data.split('_')[2]);
+                
+                // Get fresh videos list
                 const videos = await fetchVideos(token);
+                userStates.set(chatId, { videos: videos, offset: offset });
                 
                 const buttons = videos.slice(offset, offset + 10).map((v, i) => [{
                     text: `❌ ${offset + i + 1}. ${v.title.substring(0, 30)}${v.title.length > 30 ? '...' : ''}`,
@@ -284,7 +295,13 @@ bot.on('callback_query', async (query) => {
             }
             
             const index = parseInt(data.split('_')[1]);
-            const videos = await fetchVideos(token);
+            
+            // Get videos from state or fetch fresh
+            let videos = userStates.get(chatId)?.videos;
+            if (!videos) {
+                videos = await fetchVideos(token);
+                userStates.set(chatId, { videos: videos });
+            }
             
             if (index < 0 || index >= videos.length) {
                 bot.answerCallbackQuery(query.id, { text: '❌ Invalid video' });
@@ -292,6 +309,9 @@ bot.on('callback_query', async (query) => {
             }
             
             const videoToDelete = videos[index];
+            
+            // Store the index for confirmation
+            userStates.set(chatId, { videos: videos, deleteIndex: index });
             
             // Show confirmation
             const buttons = [[
@@ -320,32 +340,51 @@ bot.on('callback_query', async (query) => {
             
             bot.answerCallbackQuery(query.id, { text: '⏳ Deleting...' });
             
-            const deletedVideo = await deleteVideo(token, index);
-            
-            bot.editMessageText(
-                `✅ *Video deleted!*\n\n📹 ${deletedVideo.title}\n\nPlaylist updates in ~30 seconds.`,
-                {
+            try {
+                const deletedVideo = await deleteVideo(token, index);
+                
+                bot.editMessageText(
+                    `✅ *Video deleted!*\n\n📹 ${deletedVideo.title}\n\nPlaylist updates in ~30 seconds.`,
+                    {
+                        chat_id: chatId,
+                        message_id: messageId,
+                        parse_mode: 'Markdown'
+                    }
+                );
+                
+                // Clear state
+                userStates.delete(chatId);
+            } catch (error) {
+                console.error('Delete confirmation error:', error);
+                bot.editMessageText('❌ Error: ' + error.message, {
                     chat_id: chatId,
-                    message_id: messageId,
-                    parse_mode: 'Markdown'
-                }
-            );
+                    message_id: messageId
+                });
+            }
         }
         
         // Handle clear all
         else if (data === 'clear_confirm') {
             bot.answerCallbackQuery(query.id, { text: '⏳ Clearing...' });
             
-            await clearAllVideos(token);
-            
-            bot.editMessageText(
-                '✅ *All videos cleared!*\n\nPlaylist is now empty.',
-                {
+            try {
+                await clearAllVideos(token);
+                
+                bot.editMessageText(
+                    '✅ *All videos cleared!*\n\nPlaylist is now empty.',
+                    {
+                        chat_id: chatId,
+                        message_id: messageId,
+                        parse_mode: 'Markdown'
+                    }
+                );
+            } catch (error) {
+                console.error('Clear error:', error);
+                bot.editMessageText('❌ Error: ' + error.message, {
                     chat_id: chatId,
-                    message_id: messageId,
-                    parse_mode: 'Markdown'
-                }
-            );
+                    message_id: messageId
+                });
+            }
         }
         
         else if (data === 'clear_cancel') {
@@ -359,6 +398,7 @@ bot.on('callback_query', async (query) => {
     } catch (error) {
         console.error('Callback error:', error);
         bot.answerCallbackQuery(query.id, { text: '❌ Error: ' + error.message });
+        bot.sendMessage(chatId, '❌ Error: ' + error.message + '\n\nPlease try /delete again.');
     }
 });
 
@@ -422,158 +462,205 @@ bot.on('message', async (msg) => {
         );
         
     } catch (error) {
-        console.error('Error:', error);
+        console.error('Add video error:', error);
         bot.sendMessage(chatId, '❌ Error: ' + error.message);
     }
 });
 
 // Fetch current videos
 async function fetchVideos(token) {
-    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'User-Agent': 'M3U-Bot'
+    try {
+        const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+        const response = await fetch(url, {
+            headers: {
+                'Authorization': `token ${token}`,
+                'User-Agent': 'M3U-Bot'
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to fetch videos');
         }
-    });
-    const data = await response.json();
-    return JSON.parse(Buffer.from(data.content, 'base64').toString());
+        
+        const data = await response.json();
+        
+        if (!data.content) {
+            throw new Error('No content in response');
+        }
+        
+        return JSON.parse(Buffer.from(data.content, 'base64').toString());
+    } catch (error) {
+        console.error('Fetch videos error:', error);
+        throw error;
+    }
 }
 
 // Add video to playlist
 async function addVideoToPlaylist(token, title, videoUrl) {
-    // Get current videos
-    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'User-Agent': 'M3U-Bot'
-        }
-    });
-    const data = await response.json();
-    
-    const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
-    const fileSha = data.sha;
-    
-    // Add new video
-    videos.push({
-        title: title,
-        url: videoUrl,
-        duration: -1
-    });
-    
-    // Update file
-    const updateResponse = await fetch(
-        `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
-        {
-            method: 'PUT',
+    try {
+        // Get current videos
+        const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `token ${token}`,
-                'Content-Type': 'application/json',
                 'User-Agent': 'M3U-Bot'
-            },
-            body: JSON.stringify({
-                message: `Add video: ${title}`,
-                content: Buffer.from(JSON.stringify(videos, null, 2)).toString('base64'),
-                sha: fileSha,
-                branch: BRANCH
-            })
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to fetch current videos');
         }
-    );
-    
-    if (!updateResponse.ok) {
-        const error = await updateResponse.json();
-        throw new Error(error.message || 'Failed to update playlist');
+        
+        const data = await response.json();
+        const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
+        const fileSha = data.sha;
+        
+        // Add new video
+        videos.push({
+            title: title,
+            url: videoUrl,
+            duration: -1
+        });
+        
+        // Update file
+        const updateResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'M3U-Bot'
+                },
+                body: JSON.stringify({
+                    message: `Add video: ${title}`,
+                    content: Buffer.from(JSON.stringify(videos, null, 2)).toString('base64'),
+                    sha: fileSha,
+                    branch: BRANCH
+                })
+            }
+        );
+        
+        if (!updateResponse.ok) {
+            const error = await updateResponse.json();
+            throw new Error(error.message || 'Failed to update playlist');
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('Add video error:', error);
+        throw error;
     }
-    
-    return true;
 }
 
 // Delete video from playlist
 async function deleteVideo(token, index) {
-    // Get current videos
-    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'User-Agent': 'M3U-Bot'
-        }
-    });
-    const data = await response.json();
-    
-    const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
-    
-    if (index < 0 || index >= videos.length) {
-        throw new Error('Invalid video index');
-    }
-    
-    // Remove video
-    const deletedVideo = videos.splice(index, 1)[0];
-    
-    // Update file
-    const updateResponse = await fetch(
-        `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
-        {
-            method: 'PUT',
+    try {
+        // Get current videos
+        const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `token ${token}`,
-                'Content-Type': 'application/json',
                 'User-Agent': 'M3U-Bot'
-            },
-            body: JSON.stringify({
-                message: `Delete video: ${deletedVideo.title}`,
-                content: Buffer.from(JSON.stringify(videos, null, 2)).toString('base64'),
-                sha: data.sha,
-                branch: BRANCH
-            })
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to fetch videos');
         }
-    );
-    
-    if (!updateResponse.ok) {
-        const error = await updateResponse.json();
-        throw new Error(error.message || 'Failed to delete video');
+        
+        const data = await response.json();
+        const videos = JSON.parse(Buffer.from(data.content, 'base64').toString());
+        
+        if (index < 0 || index >= videos.length) {
+            throw new Error('Invalid video index');
+        }
+        
+        // Remove video
+        const deletedVideo = videos.splice(index, 1)[0];
+        
+        // Update file
+        const updateResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'M3U-Bot'
+                },
+                body: JSON.stringify({
+                    message: `Delete video: ${deletedVideo.title}`,
+                    content: Buffer.from(JSON.stringify(videos, null, 2)).toString('base64'),
+                    sha: data.sha,
+                    branch: BRANCH
+                })
+            }
+        );
+        
+        if (!updateResponse.ok) {
+            const error = await updateResponse.json();
+            throw new Error(error.message || 'Failed to delete video');
+        }
+        
+        return deletedVideo;
+    } catch (error) {
+        console.error('Delete video error:', error);
+        throw error;
     }
-    
-    return deletedVideo;
 }
 
 // Clear all videos
 async function clearAllVideos(token) {
-    // Get current file SHA
-    const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
-    const response = await fetch(url, {
-        headers: {
-            'Authorization': `token ${token}`,
-            'User-Agent': 'M3U-Bot'
-        }
-    });
-    const data = await response.json();
-    
-    // Update with empty array
-    const updateResponse = await fetch(
-        `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
-        {
-            method: 'PUT',
+    try {
+        // Get current file SHA
+        const url = `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}?ref=${BRANCH}`;
+        const response = await fetch(url, {
             headers: {
                 'Authorization': `token ${token}`,
-                'Content-Type': 'application/json',
                 'User-Agent': 'M3U-Bot'
-            },
-            body: JSON.stringify({
-                message: 'Clear all videos',
-                content: Buffer.from(JSON.stringify([], null, 2)).toString('base64'),
-                sha: data.sha,
-                branch: BRANCH
-            })
+            }
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.message || 'Failed to fetch file');
         }
-    );
-    
-    if (!updateResponse.ok) {
-        const error = await updateResponse.json();
-        throw new Error(error.message || 'Failed to clear videos');
+        
+        const data = await response.json();
+        
+        // Update with empty array
+        const updateResponse = await fetch(
+            `https://api.github.com/repos/${GITHUB_USER}/${REPO}/contents/${FILE}`,
+            {
+                method: 'PUT',
+                headers: {
+                    'Authorization': `token ${token}`,
+                    'Content-Type': 'application/json',
+                    'User-Agent': 'M3U-Bot'
+                },
+                body: JSON.stringify({
+                    message: 'Clear all videos',
+                    content: Buffer.from(JSON.stringify([], null, 2)).toString('base64'),
+                    sha: data.sha,
+                    branch: BRANCH
+                })
+            }
+        );
+        
+        if (!updateResponse.ok) {
+            const error = await updateResponse.json();
+            throw new Error(error.message || 'Failed to clear videos');
+        }
+        
+        return true;
+    } catch (error) {
+        console.error('Clear videos error:', error);
+        throw error;
     }
-    
-    return true;
 }
 
 // Error handling
