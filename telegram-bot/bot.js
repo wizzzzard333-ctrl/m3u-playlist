@@ -232,11 +232,13 @@ bot.onText(/\/clear/, (msg) => {
 
 // Handle callback queries (button clicks)
 bot.on('callback_query', async (query) => {
-    console.log('Callback received:', query.data); // Debug log
+    // Use query.data instead of query.callback_data
+    const data = query.data;
+    
+    console.log('Callback received:', data); // Debug log
     
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
-    const data = query.callback_data;
     
     // Validate callback data
     if (!data || typeof data !== 'string') {
