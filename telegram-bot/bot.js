@@ -86,7 +86,7 @@ bot.onText(/\/settoken/, (msg) => {
     
     // Wait for token
     bot.once('message', (tokenMsg) => {
-        if (tokenMsg.chat.id === chatId && !tokenMsg.text.startsWith('/')) {
+        if (tokenMsg.chat.id === chatId && tokenMsg.text && !tokenMsg.text.startsWith('/')) {
             const token = tokenMsg.text.trim();
             
             if (token.length < 20) {
@@ -232,9 +232,19 @@ bot.onText(/\/clear/, (msg) => {
 
 // Handle callback queries (button clicks)
 bot.on('callback_query', async (query) => {
+    console.log('Callback received:', query.data); // Debug log
+    
     const chatId = query.message.chat.id;
     const messageId = query.message.message_id;
     const data = query.callback_data;
+    
+    // Validate callback data
+    if (!data || typeof data !== 'string') {
+        console.error('Invalid callback data:', data);
+        bot.answerCallbackQuery(query.id, { text: '❌ Invalid action' });
+        return;
+    }
+    
     const token = userTokens.get(chatId);
     
     if (!token) {
@@ -397,7 +407,8 @@ bot.on('callback_query', async (query) => {
         
     } catch (error) {
         console.error('Callback error:', error);
-        bot.answerCallbackQuery(query.id, { text: '❌ Error: ' + error.message });
+        console.error('Callback data was:', data);
+        bot.answerCallbackQuery(query.id, { text: '❌ Error occurred' });
         bot.sendMessage(chatId, '❌ Error: ' + error.message + '\n\nPlease try /delete again.');
     }
 });
@@ -407,7 +418,7 @@ bot.on('message', async (msg) => {
     const chatId = msg.chat.id;
     const text = msg.text;
     
-    // Ignore commands
+    // Ignore commands and non-text messages
     if (!text || text.startsWith('/')) return;
     
     // Check if it's a URL
